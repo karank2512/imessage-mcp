@@ -1,0 +1,39 @@
+{
+  "status": 200,
+  "message": "Successfully fetched chats!",
+  "data": [
+    {
+      "guid": "iMessage;-;fixture-one@example.com",
+      "chatIdentifier": "fixture-one@example.com",
+      "displayName": "",
+      "style": 45,
+      "isArchived": false,
+      "participants": [
+        {"address": "fixture-one@example.com", "service": "iMessage"}
+      ],
+      "lastMessage": {
+        "guid": "p:0/FIXTURE-MSG-0001",
+        "text": "Fixture message one: lorem ipsum.",
+        "dateCreated": 1700000000000,
+        "isFromMe": false
+      }
+    },
+    {
+      "guid": "iMessage;+;chat000000000000000001",
+      "chatIdentifier": "chat000000000000000001",
+      "displayName": "Fixture Group",
+      "style": 43,
+      "isArchived": false,
+      "participants": [
+        {"address": "+15550100001", "service": "iMessage"},
+        {"address": "+15550100002", "service": "iMessage"}
+      ],
+      "lastMessage": {
+        "guid": "p:0/FIXTURE-MSG-0002",
+        "text": "Fixture message two: dolor sit amet.",
+        "dateCreated": 1700000060000,
+        "isFromMe": true
+      }
+    }
+  ]
+}

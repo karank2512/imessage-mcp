@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "message": "Successfully fetched messages!",
+  "data": [
+    {
+      "guid": "p:0/FIXTURE-MSG-0001",
+      "text": "Fixture message one: lorem ipsum.",
+      "dateCreated": 1700000000000,
+      "dateRead": null,
+      "dateDelivered": 1700000001000,
+      "isFromMe": false,
+      "handle": {"address": "fixture-one@example.com", "service": "iMessage"},
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0002",
+      "text": "Fixture message two: dolor sit amet.",
+      "dateCreated": 1700000060000,
+      "dateRead": null,
+      "dateDelivered": 1700000061000,
+      "isFromMe": true,
+      "handle": null,
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    }
+  ]
+}
