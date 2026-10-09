@@ -113,6 +113,58 @@
       "handle": {"address": "+15550100002", "service": "iMessage"},
       "attachments": [],
       "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0009",
+      "text": "Fixture promo: 50% off today only.",
+      "attributedBody": [{"string": "Fixture promo: 50% off today only.", "runs": []}],
+      "dateCreated": 1700000090000,
+      "dateRead": 1700000095000,
+      "dateDelivered": 1700000091000,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "+15550100001", "service": "iMessage"},
+      "attachments": [],
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0010",
+      "text": "Fixture tally: 50 items off the list.",
+      "attributedBody": [{"string": "Fixture tally: 50 items off the list.", "runs": []}],
+      "dateCreated": 1700000150000,
+      "dateRead": null,
+      "dateDelivered": 1700000151000,
+      "isFromMe": true,
+      "threadOriginatorGuid": null,
+      "handle": null,
+      "attachments": [],
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0011",
+      "text": "Fixture note: use snake_case names.",
+      "attributedBody": [{"string": "Fixture note: use snake_case names.", "runs": []}],
+      "dateCreated": 1700000210000,
+      "dateRead": 1700000215000,
+      "dateDelivered": 1700000211000,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "+15550100002", "service": "iMessage"},
+      "attachments": [],
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0012",
+      "text": "Fixture note: use snake case names.",
+      "attributedBody": [{"string": "Fixture note: use snake case names.", "runs": []}],
+      "dateCreated": 1700000270000,
+      "dateRead": null,
+      "dateDelivered": 1700000271000,
+      "isFromMe": true,
+      "threadOriginatorGuid": null,
+      "handle": null,
+      "attachments": [],
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
     }
   ]
 }

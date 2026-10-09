@@ -1,6 +1,6 @@
 """The MCP server (stdio) and the ``imessage-mcp`` console entry point.
 
-Tools: ``server_health``, ``list_chats``, ``read_thread``. Everything that
+Tools: ``server_health``, ``list_chats``, ``read_thread``, ``search_messages``. Everything that
 talks to BlueBubbles goes through ``BBClient`` so the tools never see urllib
 errors. Each tool is a plain function taking the client (easy to test) plus a
 thin MCP wrapper that turns ``ToolFailure`` into the SDK's tool error.
@@ -15,7 +15,13 @@ from typing import Any
 from . import __version__
 from .bb import BBClient, BBError
 from .config import ConfigError, ENV_HELP, Settings, load_settings
-from .normalize import ms_from_iso, normalize_chats, normalize_messages
+from .normalize import (
+    message_ms,
+    ms_from_iso,
+    normalize_chats,
+    normalize_message,
+    normalize_messages,
+)
 
 SERVER_NAME = "imessage-mcp"
 
@@ -23,6 +29,9 @@ DEFAULT_CHAT_LIMIT = 20
 MAX_CHAT_LIMIT = 200
 DEFAULT_THREAD_LIMIT = 50
 MAX_THREAD_LIMIT = 500
+DEFAULT_SEARCH_LIMIT = 25
+MAX_SEARCH_LIMIT = 100
+MIN_QUERY_LENGTH = 2
 
 SERVER_HEALTH_DOC = (
     "Check that the BlueBubbles server answers /api/v1/server/info.\n\n"
@@ -52,6 +61,19 @@ READ_THREAD_DOC = (
     "returned; to page back, call again with before = the date of the oldest "
     "message you have. has_more is true when older messages exist. Fails "
     "with an error for an unknown chat_guid or an unparseable before."
+)
+
+SEARCH_MESSAGES_DOC = (
+    "Search message text across chats, newest first.\n\n"
+    "query is matched as a literal, case-insensitive substring of each "
+    "message's text (at least 2 characters; % and _ are not wildcards). "
+    "Optionally restrict to one chat with chat_guid (from list_chats) and to "
+    "messages after since (ISO 8601). Returns a list of {id, chat_guid, date, "
+    "from_me, sender, text, attachments, reply_to}, the same shape as "
+    "read_thread plus chat_guid; pass chat_guid to read_thread for context. "
+    "At most `limit` hits are returned (default 25, max 100); narrow the query "
+    "or use since to see more. Fails with an error for an empty or too short "
+    "query, an unknown chat_guid or an unparseable since."
 )
 
 
@@ -139,6 +161,58 @@ def read_thread(
     return {"chat_guid": guid, "messages": normalize_messages(page), "has_more": has_more}
 
 
+def search_messages(
+    client: BBClient,
+    query: str,
+    chat_guid: str | None = None,
+    since: str | None = None,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+) -> list[dict[str, Any]]:
+    """Up to ``limit`` messages whose text contains ``query``, newest first."""
+    text = (query or "").strip()
+    if not text:
+        raise ToolFailure("query is required")
+    if len(text) < MIN_QUERY_LENGTH:
+        raise ToolFailure(f"query must be at least {MIN_QUERY_LENGTH} characters, got {text!r}")
+    guid = (chat_guid or "").strip() or None
+    n = _clamp(limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT)
+
+    since_ms: int | None = None
+    if since is not None and str(since).strip():
+        try:
+            since_ms = ms_from_iso(str(since))
+        except ValueError:
+            raise ToolFailure(
+                f"since must be an ISO 8601 timestamp such as 2024-01-31T09:30:00+00:00, got {since!r}"
+            ) from None
+
+    try:
+        raw = client.search_messages(text, limit=n, chat_guid=guid, since_ms=since_ms)
+        if not raw and guid:
+            _require_chat(client, guid)
+    except BBError as err:
+        raise ToolFailure(str(err)) from None
+
+    records = [m for m in raw if isinstance(m, dict)]
+    records.sort(key=lambda m: message_ms(m) or 0, reverse=True)
+    return [_search_hit(m) for m in records[:n]]
+
+
+def _search_hit(msg: dict[str, Any]) -> dict[str, Any]:
+    """The read_thread message shape plus the chat the hit belongs to."""
+    hit = normalize_message(msg)
+    hit["chat_guid"] = _message_chat_guid(msg)
+    return hit
+
+
+def _message_chat_guid(msg: dict[str, Any]) -> str:
+    """The guid of the first embedded chat, or '' when none was embedded."""
+    for chat in msg.get("chats") or []:
+        if isinstance(chat, dict) and chat.get("guid"):
+            return str(chat["guid"])
+    return ""
+
+
 def _require_chat(client: BBClient, chat_guid: str) -> None:
     """Raise ``ToolFailure`` when BlueBubbles does not know ``chat_guid``."""
     try:
@@ -195,6 +269,18 @@ def build_server(settings: Settings, client: BBClient | None = None):
     ) -> dict[str, Any]:
         try:
             return read_thread(bb, chat_guid, limit=limit, before=before)
+        except ToolFailure as err:
+            raise tool_error(str(err)) from None
+
+    @server.tool(name="search_messages", description=SEARCH_MESSAGES_DOC)
+    def search_messages_tool(
+        query: str,
+        chat_guid: str | None = None,
+        since: str | None = None,
+        limit: int = DEFAULT_SEARCH_LIMIT,
+    ) -> list[dict[str, Any]]:
+        try:
+            return search_messages(bb, query, chat_guid=chat_guid, since=since, limit=limit)
         except ToolFailure as err:
             raise tool_error(str(err)) from None
 

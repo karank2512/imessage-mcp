@@ -29,6 +29,15 @@ PATH_MESSAGE_TEXT = "/api/v1/message/text"
 # What a chat / message query asks BlueBubbles to embed in each record.
 CHAT_WITH = ["participants", "lastmessage"]
 MESSAGE_WITH = ["attachment", "handle"]
+# A search spans chats, so each hit also needs its chat embedded.
+SEARCH_WITH = ["chat", "attachment", "handle"]
+
+# The ``where`` item a search sends. BlueBubbles hands ``statement`` to its
+# query builder verbatim with ``args`` bound, so the LIKE pattern is a bound
+# parameter, never spliced into SQL. ``ESCAPE '\'`` makes ``\%``, ``\_`` and
+# ``\\`` literal inside the pattern; ``like_pattern`` produces exactly that.
+LIKE_ESCAPE = "\\"
+SEARCH_STATEMENT = "message.text LIKE :text ESCAPE '\\'"
 
 Transport = Callable[[str, str, "bytes | None", dict[str, str]], "tuple[int, bytes]"]
 
@@ -92,6 +101,32 @@ class BBClient:
         }
         if before_ms is not None:
             body["before"] = int(before_ms)
+        return self.query_messages(body)
+
+    def search_messages(
+        self,
+        query: str,
+        limit: int,
+        chat_guid: str | None = None,
+        since_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Newest-first messages whose ``text`` contains ``query`` literally.
+
+        ``query`` is escaped with ``like_pattern`` so ``%`` and ``_`` in it
+        cannot widen the match. Optionally restricted to one chat and to
+        messages created after ``since_ms``.
+        """
+        body: dict[str, Any] = {
+            "limit": int(limit),
+            "offset": 0,
+            "with": list(SEARCH_WITH),
+            "sort": "DESC",
+            "where": [{"statement": SEARCH_STATEMENT, "args": {"text": like_pattern(query)}}],
+        }
+        if chat_guid:
+            body["chatGuid"] = chat_guid
+        if since_ms is not None:
+            body["after"] = int(since_ms)
         return self.query_messages(body)
 
     def chats(self, limit: int = 25) -> list[dict[str, Any]]:
@@ -170,6 +205,20 @@ class BBClient:
 
 
 # ---- helpers -------------------------------------------------------------
+
+
+def like_pattern(query: str) -> str:
+    """``%query%`` for ``SEARCH_STATEMENT``: a substring match of ``query`` itself.
+
+    The escape character, ``%`` and ``_`` inside ``query`` are prefixed with
+    ``LIKE_ESCAPE`` so they match literally instead of acting as wildcards.
+    """
+    escaped = (
+        query.replace(LIKE_ESCAPE, LIKE_ESCAPE + LIKE_ESCAPE)
+        .replace("%", LIKE_ESCAPE + "%")
+        .replace("_", LIKE_ESCAPE + "_")
+    )
+    return f"%{escaped}%"
 
 
 def _loads_or_none(raw: bytes | None) -> Any:
