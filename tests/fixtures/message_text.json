@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "message": "Message sent!",
+  "data": {
+    "guid": "p:0/FIXTURE-MSG-0003",
+    "text": "Fixture outgoing text.",
+    "dateCreated": 1700000120000,
+    "isFromMe": true,
+    "error": 0,
+    "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+  }
+}
