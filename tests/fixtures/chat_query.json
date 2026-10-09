@@ -12,11 +12,23 @@
         {"address": "fixture-one@example.com", "service": "iMessage"}
       ],
       "lastMessage": {
-        "guid": "p:0/FIXTURE-MSG-0001",
-        "text": "Fixture message one: lorem ipsum.",
-        "dateCreated": 1700000000000,
+        "guid": "p:0/FIXTURE-MSG-0007",
+        "text": "Fixture message seven: newest in the direct chat.",
+        "dateCreated": 1700000360000,
+        "dateRead": null,
         "isFromMe": false
       }
+    },
+    {
+      "guid": "SMS;-;+15550100003",
+      "chatIdentifier": "+15550100003",
+      "displayName": "",
+      "style": 45,
+      "isArchived": false,
+      "participants": [
+        {"address": "+15550100003", "service": "SMS"}
+      ],
+      "lastMessage": null
     },
     {
       "guid": "iMessage;+;chat000000000000000001",
@@ -29,10 +41,11 @@
         {"address": "+15550100002", "service": "iMessage"}
       ],
       "lastMessage": {
-        "guid": "p:0/FIXTURE-MSG-0002",
-        "text": "Fixture message two: dolor sit amet.",
-        "dateCreated": 1700000060000,
-        "isFromMe": true
+        "guid": "p:0/FIXTURE-MSG-0008",
+        "text": "Fixture message eight: newest in the group.",
+        "dateCreated": 1700000420000,
+        "dateRead": 1700000421000,
+        "isFromMe": false
       }
     }
   ]
