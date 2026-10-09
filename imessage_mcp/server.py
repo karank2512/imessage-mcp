@@ -50,16 +50,24 @@ def check_health(client: BBClient) -> dict[str, Any]:
     return health_from_info(info)
 
 
-def build_server(settings: Settings, client: BBClient | None = None):
-    """Create the FastMCP server with its tools registered.
+def _server_class():
+    """Return the decorator-style server class for the installed ``mcp``.
 
-    The ``mcp`` import is local so ``--help`` and config errors work even when
-    the import is slow or unavailable in a stripped-down environment.
+    mcp 2.x renamed FastMCP to MCPServer; the registration and ``run`` APIs we
+    use are the same in both. Imported lazily so ``--help`` and config errors
+    never depend on the SDK import.
     """
-    from mcp.server.fastmcp import FastMCP
+    try:
+        from mcp.server.mcpserver import MCPServer  # mcp >= 2
+    except ImportError:  # pragma: no cover - exercised only on mcp 1.x
+        from mcp.server.fastmcp import FastMCP as MCPServer
+    return MCPServer
 
+
+def build_server(settings: Settings, client: BBClient | None = None):
+    """Create the MCP server with its tools registered."""
     bb = client or BBClient(settings.url, settings.password)
-    server = FastMCP(SERVER_NAME)
+    server = _server_class()(SERVER_NAME)
 
     @server.tool(name="server_health", description=SERVER_HEALTH_DOC)
     def server_health() -> dict[str, Any]:

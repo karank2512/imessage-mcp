@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -212,29 +213,48 @@ def test_tools_list_over_stdio_is_exactly_server_health():
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
     ]
-    stdin = "".join(json.dumps(r) + "\n" for r in requests)
+    responses, stderr = drive_stdio(requests, env)
 
-    proc = subprocess.run(
+    assert 1 in responses, stderr
+    assert "result" in responses[1], responses[1]
+    assert 2 in responses, stderr
+    tools = responses[2]["result"]["tools"]
+    assert [t["name"] for t in tools] == ["server_health"]
+
+
+def drive_stdio(requests, env, timeout=30):
+    """Send ``requests`` to the server over stdio and collect replies by id.
+
+    Stdin stays open until every request with an id has been answered: the
+    server exits on EOF and may drop in-flight replies if we close early.
+    """
+    proc = subprocess.Popen(
         [sys.executable, "-m", "imessage_mcp.server"],
-        input=stdin,
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         cwd=ROOT,
         env=env,
-        timeout=60,
     )
-
+    killer = threading.Timer(timeout, proc.kill)
+    killer.start()
+    wanted = {r["id"] for r in requests if "id" in r}
     responses = {}
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        msg = json.loads(line)
-        if "id" in msg:
-            responses[msg["id"]] = msg
-
-    assert 1 in responses, proc.stderr
-    assert "result" in responses[1], responses[1]
-    assert 2 in responses, proc.stderr
-    tools = responses[2]["result"]["tools"]
-    assert [t["name"] for t in tools] == ["server_health"]
+    try:
+        for r in requests:
+            proc.stdin.write(json.dumps(r) + "\n")
+        proc.stdin.flush()
+        while wanted - responses.keys():
+            line = proc.stdout.readline()
+            if not line:
+                break
+            msg = json.loads(line)
+            if "id" in msg:
+                responses[msg["id"]] = msg
+    finally:
+        proc.stdin.close()
+        stderr = proc.stderr.read()
+        proc.wait()
+        killer.cancel()
+    return responses, stderr

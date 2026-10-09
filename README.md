@@ -111,9 +111,13 @@ BlueBubbles can stop emitting webhooks and socket events while its REST API keep
 ## Development
 
 ```bash
-ln -sfn ~/venvs/imessage-mcp .venv   # or: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-make test
-make lint                             # runs pyflakes if it is installed, otherwise skips
+python -m venv .venv
+.venv/bin/pip install -e '.[dev]'     # offline: add --no-build-isolation (needs setuptools>=64 and wheel in the venv)
+make test                             # pytest against the fake BlueBubbles
+make lint                             # pyflakes if it is installed, otherwise skips
+make check                            # --help names the env vars; stdio tools/list is exactly server_health
 ```
 
-Tests run against a stdlib fake of the BlueBubbles API in `tests/fake_bb.py`; they never contact a real server. Fixture data in `tests/fixtures/` is invented.
+`make check` runs the server as `python -m imessage_mcp.server`, so it works before the console script is installed. Tests run against a stdlib fake of the BlueBubbles API in `tests/fake_bb.py`; they never contact a real server, but they do bind 127.0.0.1 on a free port. Fixture data in `tests/fixtures/` is invented.
+
+The server targets the `mcp` 2.x SDK (`MCPServer`) and falls back to `FastMCP` on 1.x.
