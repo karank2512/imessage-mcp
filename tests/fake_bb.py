@@ -1,35 +1,40 @@
-"""A stdlib fake of the BlueBubbles REST API for tests.
+"""An in-process fake of the BlueBubbles REST API for tests.
 
-Serves canned JSON from ``tests/fixtures`` for the four endpoints the client
-uses, checks the ``password`` query parameter, and records every request so
-tests can assert on paths and bodies. All data is invented.
+``FakeBlueBubbles`` is a ``BBClient`` transport: a callable
+``(method, url, body, headers) -> (status, body)``. It never touches the
+network or binds a port, so it runs anywhere pytest does. It serves canned JSON from
+``tests/fixtures``, applies the chat and message query parameters the real
+server honours (chat guid, before/after, sort, offset, limit, ``with``),
+checks the ``password`` query parameter, and records every request so tests
+can assert on paths and bodies. All data is invented.
 
 Usage::
 
-    with FakeBlueBubbles(password="fixture-pw") as fake:
-        client = BBClient(fake.url, "fixture-pw")
-        ...
-        fake.records[0].path == "/api/v1/server/info"
+    fake = FakeBlueBubbles(password="fixture-pw")
+    client = fake.client()                 # BBClient wired to the fake
+    ...
+    fake.records[0].path == "/api/v1/server/info"
 """
 
 from __future__ import annotations
 
 import json
-import threading
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from imessage_mcp.bb import BBClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-ROUTES: dict[tuple[str, str], str] = {
-    ("GET", "/api/v1/server/info"): "server_info.json",
-    ("POST", "/api/v1/chat/query"): "chat_query.json",
-    ("POST", "/api/v1/message/query"): "message_query.json",
-    ("POST", "/api/v1/message/text"): "message_text.json",
-}
+PATH_SERVER_INFO = "/api/v1/server/info"
+PATH_CHAT_QUERY = "/api/v1/chat/query"
+PATH_CHAT_PREFIX = "/api/v1/chat/"
+PATH_MESSAGE_QUERY = "/api/v1/message/query"
+PATH_MESSAGE_TEXT = "/api/v1/message/text"
+
+FAKE_URL = "http://fake-bluebubbles.invalid:1234"
 
 
 @dataclass
@@ -51,136 +56,163 @@ def load_fixture(name: str) -> dict[str, Any]:
         return json.load(fh)
 
 
-class _Handler(BaseHTTPRequestHandler):
-    server: "FakeBlueBubbles"  # type: ignore[assignment]
-
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
-        pass
-
-    def _read_body(self) -> Any:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
-            return None
-        raw = self.rfile.read(length)
-        try:
-            return json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return raw.decode("utf-8", "replace")
-
-    def _send(self, status: int, payload: Any) -> None:
-        body = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _handle(self, method: str) -> None:
-        parts = urlsplit(self.path)
-        query = parse_qs(parts.query)
-        body = self._read_body() if method == "POST" else None
-        rec = Recorded(
-            method=method,
-            path=parts.path,
-            query=query,
-            body=body,
-            headers={k: v for k, v in self.headers.items()},
-        )
-        with self.server.lock:
-            self.server.records.append(rec)
-            override = self.server.overrides.get((method, parts.path))
-
-        if rec.password != self.server.password:
-            self._send(
-                401,
-                {
-                    "status": 401,
-                    "message": "Unauthorized",
-                    "error": {
-                        "type": "Authentication Error",
-                        "message": "Invalid password",
-                    },
-                },
-            )
-            return
-
-        if override is not None:
-            status, payload = override
-            if isinstance(payload, (bytes, str)):
-                raw = payload if isinstance(payload, bytes) else payload.encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "text/plain")
-                self.send_header("Content-Length", str(len(raw)))
-                self.end_headers()
-                self.wfile.write(raw)
-            else:
-                self._send(status, payload)
-            return
-
-        fixture = ROUTES.get((method, parts.path))
-        if fixture is None:
-            self._send(
-                404,
-                {
-                    "status": 404,
-                    "message": "Not Found",
-                    "error": {"type": "Not Found", "message": f"no route for {method} {parts.path}"},
-                },
-            )
-            return
-
-        self._send(200, load_fixture(fixture))
-
-    def do_GET(self) -> None:  # noqa: N802 - stdlib naming
-        self._handle("GET")
-
-    def do_POST(self) -> None:  # noqa: N802 - stdlib naming
-        self._handle("POST")
+def _envelope(status: int, message: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "message": message,
+        "error": {"type": message, "message": message},
+    }
 
 
-class FakeBlueBubbles(ThreadingHTTPServer):
-    """Fake BlueBubbles bound to 127.0.0.1 on a free port."""
-
-    daemon_threads = True
-    allow_reuse_address = True
+class FakeBlueBubbles:
+    """BlueBubbles stand-in that answers ``BBClient`` requests in-process."""
 
     def __init__(self, password: str = "fixture-pw"):
-        super().__init__(("127.0.0.1", 0), _Handler)
         self.password = password
+        self.url = FAKE_URL
         self.records: list[Recorded] = []
         self.overrides: dict[tuple[str, str], tuple[int, Any]] = {}
-        self.lock = threading.Lock()
-        self._thread: threading.Thread | None = None
 
-    @property
-    def url(self) -> str:
-        host, port = self.server_address[:2]
-        return f"http://{host}:{port}"
+    # ---- test helpers ---------------------------------------------------
 
-    def start(self) -> "FakeBlueBubbles":
-        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
-        self._thread.start()
-        return self
-
-    def stop(self) -> None:
-        self.shutdown()
-        self.server_close()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-            self._thread = None
+    def client(self, password: str | None = None, **kwargs: Any) -> BBClient:
+        """A ``BBClient`` whose transport is this fake."""
+        pw = self.password if password is None else password
+        return BBClient(self.url, pw, transport=self, **kwargs)
 
     def override(self, method: str, path: str, status: int, payload: Any) -> None:
         """Make ``method path`` answer ``status`` with ``payload`` (JSON, or raw str/bytes)."""
-        with self.lock:
-            self.overrides[(method, path)] = (status, payload)
+        self.overrides[(method, path)] = (status, payload)
 
     def clear(self) -> None:
-        with self.lock:
-            self.records.clear()
-            self.overrides.clear()
+        self.records.clear()
+        self.overrides.clear()
 
-    def __enter__(self) -> "FakeBlueBubbles":
-        return self.start()
+    # ---- transport --------------------------------------------------------
 
-    def __exit__(self, *exc: Any) -> None:
-        self.stop()
+    def __call__(
+        self, method: str, url: str, body: bytes | None, headers: dict[str, str]
+    ) -> tuple[int, bytes]:
+        parts = urlsplit(url)
+        path = parts.path
+        rec = Recorded(
+            method=method,
+            path=path,
+            query=parse_qs(parts.query),
+            body=_parse_body(body),
+            headers=dict(headers),
+        )
+        self.records.append(rec)
+
+        if rec.password != self.password:
+            payload = _envelope(401, "Unauthorized")
+            payload["error"] = {"type": "Authentication Error", "message": "Invalid password"}
+            return _json(401, payload)
+
+        override = self.overrides.get((method, path))
+        if override is not None:
+            status, payload = override
+            if isinstance(payload, bytes):
+                return status, payload
+            if isinstance(payload, str):
+                return status, payload.encode("utf-8")
+            return _json(status, payload)
+
+        return self._route(method, path, rec.body)
+
+    def _route(self, method: str, path: str, body: Any) -> tuple[int, bytes]:
+        if method == "GET" and path == PATH_SERVER_INFO:
+            return _json(200, load_fixture("server_info.json"))
+        if method == "POST" and path == PATH_CHAT_QUERY:
+            return _json(200, self._chat_query(body if isinstance(body, dict) else {}))
+        if method == "GET" and path.startswith(PATH_CHAT_PREFIX):
+            return self._chat_find(unquote(path[len(PATH_CHAT_PREFIX):]))
+        if method == "POST" and path == PATH_MESSAGE_QUERY:
+            return _json(200, self._message_query(body if isinstance(body, dict) else {}))
+        if method == "POST" and path == PATH_MESSAGE_TEXT:
+            return _json(200, load_fixture("message_text.json"))
+        payload = _envelope(404, "Not Found")
+        payload["error"]["message"] = f"no route for {method} {path}"
+        return _json(404, payload)
+
+    # ---- route logic ------------------------------------------------------
+
+    def _chat_query(self, body: dict[str, Any]) -> dict[str, Any]:
+        fixture = load_fixture("chat_query.json")
+        chats = list(fixture["data"])
+        if str(body.get("sort", "")).lower() == "lastmessage":
+            chats.sort(key=_chat_last_ms, reverse=True)
+        with_ = {str(w).lower() for w in body.get("with") or []}
+        if "participants" not in with_:
+            chats = [{k: v for k, v in c.items() if k != "participants"} for c in chats]
+        if "lastmessage" not in with_:
+            chats = [{k: v for k, v in c.items() if k != "lastMessage"} for c in chats]
+        offset = _int(body.get("offset"), 0)
+        limit = _int(body.get("limit"), len(chats))
+        fixture["data"] = chats[offset : offset + limit]
+        return fixture
+
+    def _chat_find(self, guid: str) -> tuple[int, bytes]:
+        for chat in load_fixture("chat_query.json")["data"]:
+            if chat["guid"] == guid:
+                return _json(200, {"status": 200, "message": "Successfully fetched chat!", "data": chat})
+        return _json(404, _envelope(404, "Chat does not exist!"))
+
+    def _message_query(self, body: dict[str, Any]) -> dict[str, Any]:
+        fixture = load_fixture("message_query.json")
+        messages = list(fixture["data"])
+
+        chat_guid = body.get("chatGuid")
+        if chat_guid:
+            messages = [m for m in messages if chat_guid in {c["guid"] for c in m.get("chats", [])}]
+        before = body.get("before")
+        if before is not None:
+            messages = [m for m in messages if m["dateCreated"] < int(before)]
+        after = body.get("after")
+        if after is not None:
+            messages = [m for m in messages if m["dateCreated"] > int(after)]
+
+        descending = str(body.get("sort", "DESC")).upper() != "ASC"
+        messages.sort(key=lambda m: m["dateCreated"], reverse=descending)
+
+        offset = _int(body.get("offset"), 0)
+        limit = _int(body.get("limit"), len(messages))
+        messages = messages[offset : offset + limit]
+
+        # Like the real server, embedded records only appear when asked for.
+        with_ = {str(w).lower() for w in body.get("with") or []}
+        drop = set()
+        if "attachment" not in with_:
+            drop.add("attachments")
+        if "handle" not in with_:
+            drop.add("handle")
+        fixture["data"] = [{k: v for k, v in m.items() if k not in drop} for m in messages]
+        return fixture
+
+
+# ---- helpers ---------------------------------------------------------------
+
+
+def _json(status: int, payload: Any) -> tuple[int, bytes]:
+    return status, json.dumps(payload).encode("utf-8")
+
+
+def _parse_body(raw: bytes | None) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return raw.decode("utf-8", "replace")
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _chat_last_ms(chat: dict[str, Any]) -> int:
+    last = chat.get("lastMessage")
+    return int(last["dateCreated"]) if isinstance(last, dict) else -1

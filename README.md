@@ -4,7 +4,7 @@ MCP server for iMessage through [BlueBubbles](https://bluebubbles.app): search a
 
 ## Status
 
-Pre-alpha. This release ships the scaffold, configuration, a BlueBubbles client, and one tool: `server_health`. Reading, searching and sending land in later packets.
+Pre-alpha. This release ships the scaffold, configuration, a BlueBubbles client, and three read-only tools: `server_health`, `list_chats` and `read_thread`. Searching and sending land in later packets.
 
 ## Requirements
 
@@ -87,6 +87,14 @@ Or in `.mcp.json`:
 
 ## Tools
 
+| Tool | Arguments | Returns | BlueBubbles call |
+| --- | --- | --- | --- |
+| `server_health` | none | `{ok, version, detail}` | `GET /api/v1/server/info` |
+| `list_chats` | `limit` (default 20, max 200) | list of `{chat_guid, display_name, participants, last_message_at, unread}`, newest first | `POST /api/v1/chat/query` with `participants` and `lastmessage` |
+| `read_thread` | `chat_guid`, `limit` (default 50, max 500), `before` (ISO 8601, optional) | `{chat_guid, messages, has_more}`; messages oldest to newest | `POST /api/v1/message/query` (plus `GET /api/v1/chat/{guid}` when the page is empty, to tell an empty chat from an unknown one) |
+
+All three are read-only. `list_chats` and `read_thread` report failures (server unreachable, wrong password, unknown `chat_guid`, unparseable `before`) as MCP tool errors with a message, never as a crash. Dates are ISO 8601 with an offset in the local timezone of the machine running `imessage-mcp`.
+
 ### `server_health`
 
 Calls `GET /api/v1/server/info` with the configured password and returns:
@@ -96,6 +104,32 @@ Calls `GET /api/v1/server/info` with the configured password and returns:
 ```
 
 `ok` is false, with the reason in `detail`, when the server is unreachable, the password is wrong, the request times out (10 s), or the body is not the JSON envelope BlueBubbles normally returns. The tool never raises.
+
+### `list_chats`
+
+```json
+[
+  {"chat_guid": "iMessage;+;chat000000000000000001", "display_name": "Fixture Group", "participants": ["+15550100001", "+15550100002"], "last_message_at": "2023-11-14T22:20:20+00:00", "unread": false},
+  {"chat_guid": "iMessage;-;fixture-one@example.com", "display_name": "", "participants": ["fixture-one@example.com"], "last_message_at": "2023-11-14T22:19:20+00:00", "unread": true}
+]
+```
+
+`participants` are handles exactly as BlueBubbles reports them. `display_name` is empty for one-to-one chats. `last_message_at` is `null` for a chat with no messages. `unread` is a best effort from the chat's last message: `true` when it came from someone else and has no read date, `false` when it is yours or has been read, `null` when there is no last message to judge from.
+
+### `read_thread`
+
+```json
+{
+  "chat_guid": "iMessage;-;fixture-one@example.com",
+  "messages": [
+    {"id": "p:0/FIXTURE-MSG-0004", "date": "2023-11-14T22:16:20+00:00", "from_me": false, "sender": "fixture-one@example.com", "text": "", "attachments": 1, "reply_to": null},
+    {"id": "p:0/FIXTURE-MSG-0006", "date": "2023-11-14T22:18:20+00:00", "from_me": true, "sender": "me", "text": "Fixture reply six, answering message five.", "attachments": 0, "reply_to": "p:0/FIXTURE-MSG-0005"}
+  ],
+  "has_more": true
+}
+```
+
+The newest `limit` messages are returned, oldest first. To page back, call again with `before` set to the `date` of the oldest message you already have; `has_more` is `true` while older messages exist. `text` comes from the message's `text` field, falling back to the text inside `attributedBody`; a message with only attachments has `text: ""`. `attachments` is a count only, nothing is downloaded. `sender` is the handle, or `me` for your own messages. `reply_to` is the `id` of the message replied to, or `null`.
 
 ## The stalled-listener problem
 
@@ -114,10 +148,11 @@ BlueBubbles can stop emitting webhooks and socket events while its REST API keep
 python -m venv .venv
 .venv/bin/pip install -e '.[dev]'     # offline: add --no-build-isolation (needs setuptools>=64 and wheel in the venv)
 make test                             # pytest against the fake BlueBubbles
+make test TESTS=tests/test_read.py    # one file; PYTEST_ARGS=-x etc. also pass through
 make lint                             # pyflakes if it is installed, otherwise skips
-make check                            # --help names the env vars; stdio tools/list is exactly server_health
+make check                            # --help names the env vars; stdio tools/list is server_health, list_chats, read_thread
 ```
 
-`make check` runs the server as `python -m imessage_mcp.server`, so it works before the console script is installed. Tests run against a stdlib fake of the BlueBubbles API in `tests/fake_bb.py`; they never contact a real server, but they do bind 127.0.0.1 on a free port. Fixture data in `tests/fixtures/` is invented.
+`make check` runs the server as `python -m imessage_mcp.server`, so it works before the console script is installed. Tests run against an in-process fake of the BlueBubbles API in `tests/fake_bb.py`, plugged into `BBClient` through its `transport` argument; they never open a network connection or bind a port. Fixture data in `tests/fixtures/` is invented.
 
 The server targets the `mcp` 2.x SDK (`MCPServer`) and falls back to `FastMCP` on 1.x.

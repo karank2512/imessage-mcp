@@ -5,21 +5,113 @@
     {
       "guid": "p:0/FIXTURE-MSG-0001",
       "text": "Fixture message one: lorem ipsum.",
+      "attributedBody": [{"string": "Fixture message one: lorem ipsum.", "runs": []}],
       "dateCreated": 1700000000000,
-      "dateRead": null,
+      "dateRead": 1700000005000,
       "dateDelivered": 1700000001000,
       "isFromMe": false,
+      "threadOriginatorGuid": null,
       "handle": {"address": "fixture-one@example.com", "service": "iMessage"},
+      "attachments": [],
       "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
     },
     {
       "guid": "p:0/FIXTURE-MSG-0002",
       "text": "Fixture message two: dolor sit amet.",
+      "attributedBody": [{"string": "Fixture message two: dolor sit amet.", "runs": []}],
       "dateCreated": 1700000060000,
       "dateRead": null,
       "dateDelivered": 1700000061000,
       "isFromMe": true,
+      "threadOriginatorGuid": null,
       "handle": null,
+      "attachments": [],
+      "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0003",
+      "text": "Fixture outgoing text.",
+      "attributedBody": [{"string": "Fixture outgoing text.", "runs": []}],
+      "dateCreated": 1700000120000,
+      "dateRead": null,
+      "dateDelivered": 1700000121000,
+      "isFromMe": true,
+      "threadOriginatorGuid": null,
+      "handle": null,
+      "attachments": [],
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0004",
+      "text": null,
+      "attributedBody": null,
+      "dateCreated": 1700000180000,
+      "dateRead": 1700000185000,
+      "dateDelivered": 1700000181000,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "fixture-one@example.com", "service": "iMessage"},
+      "attachments": [
+        {
+          "guid": "FIXTURE-ATT-0001",
+          "mimeType": "image/png",
+          "transferName": "fixture-picture.png",
+          "totalBytes": 4321,
+          "isSticker": false
+        }
+      ],
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0005",
+      "text": null,
+      "attributedBody": [{"string": "Fixture message five, text only in attributedBody.", "runs": []}],
+      "dateCreated": 1700000240000,
+      "dateRead": 1700000245000,
+      "dateDelivered": 1700000241000,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "fixture-one@example.com", "service": "iMessage"},
+      "attachments": [],
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0006",
+      "text": "Fixture reply six, answering message five.",
+      "attributedBody": [{"string": "Fixture reply six, answering message five.", "runs": []}],
+      "dateCreated": 1700000300000,
+      "dateRead": null,
+      "dateDelivered": 1700000301000,
+      "isFromMe": true,
+      "threadOriginatorGuid": "p:0/FIXTURE-MSG-0005",
+      "handle": null,
+      "attachments": [],
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0007",
+      "text": "Fixture message seven: newest in the direct chat.",
+      "attributedBody": [{"string": "Fixture message seven: newest in the direct chat.", "runs": []}],
+      "dateCreated": 1700000360000,
+      "dateRead": null,
+      "dateDelivered": 1700000361000,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "fixture-one@example.com", "service": "iMessage"},
+      "attachments": [],
+      "chats": [{"guid": "iMessage;-;fixture-one@example.com"}]
+    },
+    {
+      "guid": "p:0/FIXTURE-MSG-0008",
+      "text": "Fixture message eight: newest in the group.",
+      "attributedBody": [{"string": "Fixture message eight: newest in the group.", "runs": []}],
+      "dateCreated": 1700000420000,
+      "dateRead": 1700000421000,
+      "dateDelivered": 1700000420500,
+      "isFromMe": false,
+      "threadOriginatorGuid": null,
+      "handle": {"address": "+15550100002", "service": "iMessage"},
+      "attachments": [],
       "chats": [{"guid": "iMessage;+;chat000000000000000001"}]
     }
   ]

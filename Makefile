@@ -1,8 +1,12 @@
 .PHONY: test lint check
 PY = .venv/bin/python
 
+# Override to narrow a run: make test TESTS=tests/test_read.py PYTEST_ARGS=-x
+TESTS =
+PYTEST_ARGS =
+
 test:
-	$(PY) -m pytest -q
+	$(PY) -m pytest -q $(PYTEST_ARGS) $(TESTS)
 
 lint:
 	@if $(PY) -c "import pyflakes" 2>/dev/null; then \
@@ -41,14 +45,14 @@ while tools is None:
 proc.stdin.close()
 proc.wait()
 killer.cancel()
-assert tools == ["server_health"], tools
+assert tools == ["server_health", "list_chats", "read_thread"], tools
 print("stdio tools/list ->", tools, ": ok")
 endef
 export CHECK_STDIO_PY
 
 # Acceptance checks that do not need a BlueBubbles server:
 #  1. --help exits 0 and names every env variable
-#  2. an MCP initialize + tools/list over stdio lists exactly server_health
+#  2. an MCP initialize + tools/list over stdio lists server_health, list_chats, read_thread
 check:
 	$(PY) -m imessage_mcp.server --help
 	@for v in BLUEBUBBLES_URL BLUEBUBBLES_PASSWORD IMESSAGE_MCP_ALLOWLIST IMESSAGE_MCP_READ_ONLY; do \

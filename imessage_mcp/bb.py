@@ -3,6 +3,10 @@
 Only the stdlib is used. Every failure, from a refused connection to a 401 to
 a body that is not JSON, surfaces as ``BBError``; callers never see urllib or
 socket exceptions.
+
+The HTTP exchange itself goes through a *transport*: a callable
+``(method, url, body: bytes | None, headers) -> (status, body: bytes)``. The
+default is urllib. Tests pass an in-process fake so no socket is ever opened.
 """
 
 from __future__ import annotations
@@ -12,14 +16,21 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, Callable
 
 DEFAULT_TIMEOUT = 10.0
 
 PATH_SERVER_INFO = "/api/v1/server/info"
 PATH_CHAT_QUERY = "/api/v1/chat/query"
+PATH_CHAT = "/api/v1/chat/"  # + url-quoted chat guid
 PATH_MESSAGE_QUERY = "/api/v1/message/query"
 PATH_MESSAGE_TEXT = "/api/v1/message/text"
+
+# What a chat / message query asks BlueBubbles to embed in each record.
+CHAT_WITH = ["participants", "lastmessage"]
+MESSAGE_WITH = ["attachment", "handle"]
+
+Transport = Callable[[str, str, "bytes | None", dict[str, str]], "tuple[int, bytes]"]
 
 
 class BBError(Exception):
@@ -41,10 +52,17 @@ class BBError(Exception):
 
 
 class BBClient:
-    def __init__(self, base_url: str, password: str, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        base_url: str,
+        password: str,
+        timeout: float = DEFAULT_TIMEOUT,
+        transport: Transport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.password = password
         self.timeout = timeout
+        self.transport: Transport = transport or self._urllib_transport
 
     # ---- public API -----------------------------------------------------
 
@@ -58,16 +76,40 @@ class BBClient:
         data = self._request("POST", PATH_MESSAGE_QUERY, body)
         return data if isinstance(data, list) else []
 
+    def thread_messages(
+        self,
+        chat_guid: str,
+        limit: int,
+        before_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Newest-first messages of one chat, optionally created before ``before_ms``."""
+        body: dict[str, Any] = {
+            "chatGuid": chat_guid,
+            "limit": int(limit),
+            "offset": 0,
+            "with": list(MESSAGE_WITH),
+            "sort": "DESC",
+        }
+        if before_ms is not None:
+            body["before"] = int(before_ms)
+        return self.query_messages(body)
+
     def chats(self, limit: int = 25) -> list[dict[str, Any]]:
         """POST /api/v1/chat/query for the most recently active chats."""
         body = {
             "limit": int(limit),
             "offset": 0,
-            "with": ["lastMessage"],
+            "with": list(CHAT_WITH),
             "sort": "lastmessage",
         }
         data = self._request("POST", PATH_CHAT_QUERY, body)
         return data if isinstance(data, list) else []
+
+    def chat(self, chat_guid: str) -> dict[str, Any]:
+        """GET /api/v1/chat/{guid}; raises ``BBError(404)`` for an unknown chat."""
+        path = PATH_CHAT + urllib.parse.quote(chat_guid, safe="")
+        data = self._request("GET", path)
+        return data if isinstance(data, dict) else {}
 
     def send_text(self, chat_guid: str, text: str) -> dict[str, Any]:
         """POST /api/v1/message/text via AppleScript (no Private API)."""
@@ -81,26 +123,42 @@ class BBClient:
         query = urllib.parse.urlencode({"password": self.password})
         return f"{self.base_url}{path}?{query}"
 
+    def _urllib_transport(
+        self, method: str, url: str, body: bytes | None, headers: dict[str, str]
+    ) -> tuple[int, bytes]:
+        """Default transport. An HTTP error status is returned, not raised;
+        anything that prevents a response at all propagates as an exception."""
+        req = urllib.request.Request(url, data=body, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return int(resp.status), resp.read()
+        except urllib.error.HTTPError as exc:
+            try:
+                raw = exc.read()
+            except Exception:  # pragma: no cover - defensive
+                raw = b""
+            return int(exc.code), raw
+
     def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         headers = {"Accept": "application/json"}
         data: bytes | None = None
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        req = urllib.request.Request(self._url(path), data=data, method=method, headers=headers)
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                status = int(resp.status)
-                raw = resp.read()
-        except urllib.error.HTTPError as exc:
-            raise BBError(exc.code, _error_message(_safe_read(exc), str(exc.reason))) from None
+            status, raw = self.transport(method, self._url(path), data, headers)
         except urllib.error.URLError as exc:
             raise BBError(0, _reason_text(exc.reason)) from None
         except TimeoutError:
             raise BBError(0, f"timed out after {self.timeout:g}s") from None
         except (OSError, http.client.HTTPException, ValueError) as exc:
             raise BBError(0, _reason_text(exc)) from None
+
+        status = int(status)
+        if status >= 400:
+            fallback = http.client.responses.get(status, "error")
+            raise BBError(status, _error_message(_loads_or_none(raw), fallback))
 
         payload = _decode(raw, status)
         if isinstance(payload, dict):
@@ -114,10 +172,8 @@ class BBClient:
 # ---- helpers -------------------------------------------------------------
 
 
-def _safe_read(exc: urllib.error.HTTPError) -> Any:
-    try:
-        raw = exc.read()
-    except Exception:  # pragma: no cover - defensive
+def _loads_or_none(raw: bytes | None) -> Any:
+    if not raw:
         return None
     try:
         return json.loads(raw.decode("utf-8", "replace"))
