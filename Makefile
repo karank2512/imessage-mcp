@@ -45,14 +45,14 @@ while tools is None:
 proc.stdin.close()
 proc.wait()
 killer.cancel()
-assert tools == ["server_health", "list_chats", "read_thread"], tools
+assert tools == ["server_health", "list_chats", "read_thread", "search_messages"], tools
 print("stdio tools/list ->", tools, ": ok")
 endef
 export CHECK_STDIO_PY
 
 # Acceptance checks that do not need a BlueBubbles server:
 #  1. --help exits 0 and names every env variable
-#  2. an MCP initialize + tools/list over stdio lists server_health, list_chats, read_thread
+#  2. an MCP initialize + tools/list over stdio lists server_health, list_chats, read_thread, search_messages
 check:
 	$(PY) -m imessage_mcp.server --help
 	@for v in BLUEBUBBLES_URL BLUEBUBBLES_PASSWORD IMESSAGE_MCP_ALLOWLIST IMESSAGE_MCP_READ_ONLY; do \

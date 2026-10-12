@@ -4,7 +4,7 @@ MCP server for iMessage through [BlueBubbles](https://bluebubbles.app): search a
 
 ## Status
 
-Pre-alpha. This release ships the scaffold, configuration, a BlueBubbles client, and three read-only tools: `server_health`, `list_chats` and `read_thread`. Searching and sending land in later packets.
+Pre-alpha. This release ships the scaffold, configuration, a BlueBubbles client, and four read-only tools: `server_health`, `list_chats`, `read_thread` and `search_messages`. Sending lands in a later packet.
 
 ## Requirements
 
@@ -92,8 +92,9 @@ Or in `.mcp.json`:
 | `server_health` | none | `{ok, version, detail}` | `GET /api/v1/server/info` |
 | `list_chats` | `limit` (default 20, max 200) | list of `{chat_guid, display_name, participants, last_message_at, unread}`, newest first | `POST /api/v1/chat/query` with `participants` and `lastmessage` |
 | `read_thread` | `chat_guid`, `limit` (default 50, max 500), `before` (ISO 8601, optional) | `{chat_guid, messages, has_more}`; messages oldest to newest | `POST /api/v1/message/query` (plus `GET /api/v1/chat/{guid}` when the page is empty, to tell an empty chat from an unknown one) |
+| `search_messages` | `query` (2+ characters), `chat_guid` (optional), `since` (ISO 8601, optional), `limit` (default 25, max 100) | list of `{id, chat_guid, date, from_me, sender, text, attachments, reply_to}`, newest first | `POST /api/v1/message/query` with a `where` clause `message.text LIKE :text ESCAPE '\'` (plus `GET /api/v1/chat/{guid}` when a chat-filtered search is empty) |
 
-All three are read-only. `list_chats` and `read_thread` report failures (server unreachable, wrong password, unknown `chat_guid`, unparseable `before`) as MCP tool errors with a message, never as a crash. Dates are ISO 8601 with an offset in the local timezone of the machine running `imessage-mcp`.
+All four are read-only. `list_chats`, `read_thread` and `search_messages` report failures (server unreachable, wrong password, unknown `chat_guid`, unparseable `before`/`since`, empty or one-character `query`) as MCP tool errors with a message, never as a crash. Dates are ISO 8601 with an offset in the local timezone of the machine running `imessage-mcp`.
 
 ### `server_health`
 
@@ -131,6 +132,19 @@ Calls `GET /api/v1/server/info` with the configured password and returns:
 
 The newest `limit` messages are returned, oldest first. To page back, call again with `before` set to the `date` of the oldest message you already have; `has_more` is `true` while older messages exist. `text` comes from the message's `text` field, falling back to the text inside `attributedBody`; a message with only attachments has `text: ""`. `attachments` is a count only, nothing is downloaded. `sender` is the handle, or `me` for your own messages. `reply_to` is the `id` of the message replied to, or `null`.
 
+### `search_messages`
+
+```json
+[
+  {"id": "p:0/FIXTURE-MSG-0008", "chat_guid": "iMessage;+;chat000000000000000001", "date": "2023-11-14T22:20:20+00:00", "from_me": false, "sender": "+15550100002", "text": "Fixture message eight: newest in the group.", "attachments": 0, "reply_to": null},
+  {"id": "p:0/FIXTURE-MSG-0007", "chat_guid": "iMessage;-;fixture-one@example.com", "date": "2023-11-14T22:19:20+00:00", "from_me": false, "sender": "fixture-one@example.com", "text": "Fixture message seven: newest in the direct chat.", "attachments": 0, "reply_to": null}
+]
+```
+
+`query` is matched as a literal, case-insensitive substring of each message's text: `%`, `_` and `\` in the query are escaped before they reach BlueBubbles, so `50% off` finds only messages containing `50% off`, not every message with `50` somewhere before `off`. Leading and trailing whitespace is trimmed; what remains must be at least 2 characters. The newest `limit` hits are returned, newest first, each in the `read_thread` message shape plus the `chat_guid` it belongs to. `chat_guid` restricts the search to one chat (an unknown one is an error), and `since` keeps only messages created after that instant. There is no paging: narrow the query or raise `since` to see more.
+
+The match runs on the `text` column in the Messages database. On recent macOS versions some messages store their text only in `attributedBody`; `read_thread` shows those, but `search_messages` cannot find them.
+
 ## The stalled-listener problem
 
 BlueBubbles can stop emitting webhooks and socket events while its REST API keeps answering. From the outside the server looks healthy: `/api/v1/server/info` returns 200, `server_health` reports `ok: true`, and yet nothing that depends on new-message events fires. `server_health` alone does not detect that condition. A later packet (P5) adds `stall_check`, which compares the newest message BlueBubbles knows about against what the listener last delivered. Until then, treat `ok: true` as "the API answers", not "iMessage is flowing".
@@ -150,9 +164,9 @@ python -m venv .venv
 make test                             # pytest against the fake BlueBubbles
 make test TESTS=tests/test_read.py    # one file; PYTEST_ARGS=-x etc. also pass through
 make lint                             # pyflakes if it is installed, otherwise skips
-make check                            # --help names the env vars; stdio tools/list is server_health, list_chats, read_thread
+make check                            # --help names the env vars; stdio tools/list is server_health, list_chats, read_thread, search_messages
 ```
 
-`make check` runs the server as `python -m imessage_mcp.server`, so it works before the console script is installed. Tests run against an in-process fake of the BlueBubbles API in `tests/fake_bb.py`, plugged into `BBClient` through its `transport` argument; they never open a network connection or bind a port. Fixture data in `tests/fixtures/` is invented.
+`make check` runs the server as `python -m imessage_mcp.server`, so it works before the console script is installed. Tests run against an in-process fake of the BlueBubbles API in `tests/fake_bb.py`, plugged into `BBClient` through its `transport` argument; they never open a network connection or bind a port. The fake evaluates the search `where` clause with real `LIKE ... ESCAPE` semantics and rejects any other statement, so the search tests prove what the tool sends as well as what it matches. Fixture data in `tests/fixtures/` is invented.
 
 The server targets the `mcp` 2.x SDK (`MCPServer`) and falls back to `FastMCP` on 1.x.

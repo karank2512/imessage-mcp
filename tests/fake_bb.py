@@ -4,9 +4,13 @@
 ``(method, url, body, headers) -> (status, body)``. It never touches the
 network or binds a port, so it runs anywhere pytest does. It serves canned JSON from
 ``tests/fixtures``, applies the chat and message query parameters the real
-server honours (chat guid, before/after, sort, offset, limit, ``with``),
-checks the ``password`` query parameter, and records every request so tests
-can assert on paths and bodies. All data is invented.
+server honours (chat guid, before/after, sort, offset, limit, ``with``, and
+a ``where`` item of the one statement the search tool sends, evaluated with
+real LIKE semantics including ``ESCAPE``), checks the ``password`` query
+parameter, and records every request so tests can assert on paths and
+bodies. A ``where`` statement it does not know is a 400, so a test cannot
+pass with a query the real server was never shown to accept. All data is
+invented.
 
 Usage::
 
@@ -19,6 +23,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,6 +40,16 @@ PATH_MESSAGE_QUERY = "/api/v1/message/query"
 PATH_MESSAGE_TEXT = "/api/v1/message/text"
 
 FAKE_URL = "http://fake-bluebubbles.invalid:1234"
+
+# The only ``where`` statement the fake understands, spelled out here rather
+# than imported from the client so a test asserting on it is independent of
+# what the client happens to send. ``:text`` is the bound LIKE pattern.
+TEXT_LIKE_STATEMENT = "message.text LIKE :text ESCAPE '\\'"
+TEXT_LIKE_ESCAPE = "\\"
+
+
+class BadWhere(Exception):
+    """A ``where`` item the fake cannot evaluate; answered as a 400."""
 
 
 @dataclass
@@ -128,7 +143,10 @@ class FakeBlueBubbles:
         if method == "GET" and path.startswith(PATH_CHAT_PREFIX):
             return self._chat_find(unquote(path[len(PATH_CHAT_PREFIX):]))
         if method == "POST" and path == PATH_MESSAGE_QUERY:
-            return _json(200, self._message_query(body if isinstance(body, dict) else {}))
+            try:
+                return _json(200, self._message_query(body if isinstance(body, dict) else {}))
+            except BadWhere as err:
+                return _json(400, _envelope(400, f"Bad where clause: {err}"))
         if method == "POST" and path == PATH_MESSAGE_TEXT:
             return _json(200, load_fixture("message_text.json"))
         payload = _envelope(404, "Not Found")
@@ -171,6 +189,8 @@ class FakeBlueBubbles:
         after = body.get("after")
         if after is not None:
             messages = [m for m in messages if m["dateCreated"] > int(after)]
+        for item in body.get("where") or []:
+            messages = [m for m in messages if _where_matches(item, m)]
 
         descending = str(body.get("sort", "DESC")).upper() != "ASC"
         messages.sort(key=lambda m: m["dateCreated"], reverse=descending)
@@ -186,6 +206,8 @@ class FakeBlueBubbles:
             drop.add("attachments")
         if "handle" not in with_:
             drop.add("handle")
+        if "chat" not in with_:
+            drop.add("chats")
         fixture["data"] = [{k: v for k, v in m.items() if k not in drop} for m in messages]
         return fixture
 
@@ -211,6 +233,43 @@ def _int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _where_matches(item: Any, msg: dict[str, Any]) -> bool:
+    """Evaluate one ``{statement, args}`` where item against ``msg``.
+
+    Only ``TEXT_LIKE_STATEMENT`` is supported. Like SQL, a NULL ``text`` never
+    matches, whatever the pattern.
+    """
+    if not isinstance(item, dict) or item.get("statement") != TEXT_LIKE_STATEMENT:
+        raise BadWhere(f"unsupported statement {item!r}")
+    args = item.get("args")
+    if not isinstance(args, dict) or not isinstance(args.get("text"), str):
+        raise BadWhere(f"missing :text argument in {item!r}")
+    text = msg.get("text")
+    if not isinstance(text, str):
+        return False
+    return sql_like(args["text"], text, TEXT_LIKE_ESCAPE)
+
+
+def sql_like(pattern: str, text: str, escape: str) -> bool:
+    """SQLite ``text LIKE pattern ESCAPE escape``: ``%`` any run, ``_`` one
+    character, escaped characters literal, ASCII case-insensitive."""
+    regex = []
+    chars = iter(pattern)
+    for ch in chars:
+        if ch == escape:
+            nxt = next(chars, None)
+            if nxt is None:
+                raise BadWhere("LIKE pattern ends with the escape character")
+            regex.append(re.escape(nxt))
+        elif ch == "%":
+            regex.append(".*")
+        elif ch == "_":
+            regex.append(".")
+        else:
+            regex.append(re.escape(ch))
+    return re.fullmatch("".join(regex), text, re.IGNORECASE | re.DOTALL) is not None
 
 
 def _chat_last_ms(chat: dict[str, Any]) -> int:
