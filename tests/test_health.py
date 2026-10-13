@@ -323,7 +323,7 @@ def test_tools_list_over_stdio(stdio_env):
     assert "result" in responses[1], responses[1]
     assert 2 in responses, stderr
     tools = {t["name"]: t for t in responses[2]["result"]["tools"]}
-    assert list(tools) == ["server_health", "list_chats", "read_thread", "search_messages"]
+    assert list(tools) == ["server_health", "list_chats", "read_thread", "search_messages", "send_message"]
 
     assert tools["server_health"]["inputSchema"]["type"] == "object"
     assert tools["server_health"]["inputSchema"].get("required", []) == []

@@ -1,9 +1,11 @@
 """The MCP server (stdio) and the ``imessage-mcp`` console entry point.
 
-Tools: ``server_health``, ``list_chats``, ``read_thread``, ``search_messages``. Everything that
+Tools: ``server_health``, ``list_chats``, ``read_thread``, ``search_messages``
+and, unless ``IMESSAGE_MCP_READ_ONLY`` is set, ``send_message``. Everything that
 talks to BlueBubbles goes through ``BBClient`` so the tools never see urllib
 errors. Each tool is a plain function taking the client (easy to test) plus a
-thin MCP wrapper that turns ``ToolFailure`` into the SDK's tool error.
+thin MCP wrapper that turns ``ToolFailure`` (or ``SendError``) into the SDK's
+tool error.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from .normalize import (
     normalize_message,
     normalize_messages,
 )
+from .send import MAX_TEXT_LENGTH, SendError, send_message
 
 SERVER_NAME = "imessage-mcp"
 
@@ -74,6 +77,19 @@ SEARCH_MESSAGES_DOC = (
     "At most `limit` hits are returned (default 25, max 100); narrow the query "
     "or use since to see more. Fails with an error for an empty or too short "
     "query, an unknown chat_guid or an unparseable since."
+)
+
+SEND_MESSAGE_DOC = (
+    "Send a text message to one handle on the server's allowlist.\n\n"
+    "handle is a phone number or email address exactly as list_chats shows "
+    "it (E.164 with a leading + for numbers). The server compares it against "
+    "IMESSAGE_MCP_ALLOWLIST from its own environment after removing spaces, "
+    "dashes and parentheses from numbers and lower-casing emails; no country "
+    "code is inferred. text is sent verbatim: it must be non-empty, at most "
+    f"{MAX_TEXT_LENGTH} characters, and must not start with MEDIA: (attachments "
+    "are not supported). Returns {sent, chat_guid, message_id}. Fails with an "
+    "error, sending nothing, when the allowlist is empty, the handle is not on "
+    "it, or the text is rejected. Every attempt is logged by the server."
 )
 
 
@@ -283,6 +299,15 @@ def build_server(settings: Settings, client: BBClient | None = None):
             return search_messages(bb, query, chat_guid=chat_guid, since=since, limit=limit)
         except ToolFailure as err:
             raise tool_error(str(err)) from None
+
+    if not settings.read_only:
+
+        @server.tool(name="send_message", description=SEND_MESSAGE_DOC)
+        def send_message_tool(handle: str, text: str) -> dict[str, Any]:
+            try:
+                return send_message(bb, settings, handle, text)
+            except SendError as err:
+                raise tool_error(str(err)) from None
 
     return server
 

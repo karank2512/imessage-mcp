@@ -16,6 +16,7 @@ ENV_URL = "BLUEBUBBLES_URL"
 ENV_PASSWORD = "BLUEBUBBLES_PASSWORD"
 ENV_ALLOWLIST = "IMESSAGE_MCP_ALLOWLIST"
 ENV_READ_ONLY = "IMESSAGE_MCP_READ_ONLY"
+ENV_LOG = "IMESSAGE_MCP_LOG"
 
 # (name, description) in the order they appear in --help and the README.
 ENV_HELP: tuple[tuple[str, str], ...] = (
@@ -26,6 +27,7 @@ ENV_HELP: tuple[tuple[str, str], ...] = (
         "comma-separated handles that send_message may target; empty disables sending",
     ),
     (ENV_READ_ONLY, "set to 1 to drop the send tool entirely"),
+    (ENV_LOG, "file to append one JSON line per send attempt to (handle, length, outcome; never the text)"),
 )
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
@@ -41,10 +43,15 @@ class Settings:
     password: str = ""
     allowlist: tuple[str, ...] = ()
     read_only: bool = False
+    log_path: str = ""
 
     @property
     def sending_enabled(self) -> bool:
-        """True when a send tool should be exposed at all."""
+        """True when send_message is registered and can accept at least one handle.
+
+        read_only hides the tool; an empty allowlist leaves it registered but
+        refusing every call.
+        """
         return bool(self.allowlist) and not self.read_only
 
 
@@ -85,4 +92,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         password=password,
         allowlist=parse_allowlist(env.get(ENV_ALLOWLIST)),
         read_only=parse_bool(env.get(ENV_READ_ONLY)),
+        log_path=env.get(ENV_LOG, "").strip(),
     )
