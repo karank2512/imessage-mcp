@@ -1,5 +1,9 @@
 """``send_message``: the one tool that writes, gated by the allowlist.
 
+It is a DRY RUN unless ``IMESSAGE_MCP_LIVE_SEND=1`` is set in the server's
+environment: every check runs and the attempt is logged as ``dry_run``, but no
+request is made and no message leaves the machine.
+
 The allowlist comes from ``IMESSAGE_MCP_ALLOWLIST`` in the server's
 environment and nowhere else; nothing the model passes can widen it. Every
 attempt, allowed or refused, is appended as one JSON line to the file named
@@ -36,6 +40,7 @@ SEND_METHOD = "apple-script"
 _PHONE_NOISE = str.maketrans("", "", " -()")
 
 OUTCOME_SENT = "sent"
+OUTCOME_DRY_RUN = "dry_run"
 OUTCOME_REFUSED = "refused"
 OUTCOME_FAILED = "failed"
 
@@ -111,6 +116,11 @@ def send_message(client: BBClient, settings: Settings, handle: str, text: str) -
     with _open_log(settings.log_path) as log:
         try:
             normalized = check_send(settings, handle, text)
+            if not settings.live_send:
+                # Dry run is the default: every check ran, nothing is sent. Real sending needs
+                # IMESSAGE_MCP_LIVE_SEND=1 in the server's environment.
+                _log_line(log, normalized, text, OUTCOME_DRY_RUN)
+                return {"sent": False, "dry_run": True, "chat_guid": CHAT_GUID_PREFIX + normalized, "message_id": ""}
             result = _post_text(client, normalized, text)
         except SendError as err:
             _log_line(log, normalize_handle(handle) or str(handle).strip(), text, err.outcome, reason=str(err))

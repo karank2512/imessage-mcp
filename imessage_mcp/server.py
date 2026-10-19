@@ -80,7 +80,7 @@ SEARCH_MESSAGES_DOC = (
 )
 
 SEND_MESSAGE_DOC = (
-    "Send a text message to one handle on the server's allowlist.\n\n"
+    "Send a text message to one handle on the server's allowlist. Unless the server was started with IMESSAGE_MCP_LIVE_SEND=1 this is a dry run: it validates and logs the attempt, sends nothing, and returns sent=false with dry_run=true.\n\n"
     "handle is a phone number or email address exactly as list_chats shows "
     "it (E.164 with a leading + for numbers). The server compares it against "
     "IMESSAGE_MCP_ALLOWLIST from its own environment after removing spaces, "

@@ -17,6 +17,7 @@ ENV_PASSWORD = "BLUEBUBBLES_PASSWORD"
 ENV_ALLOWLIST = "IMESSAGE_MCP_ALLOWLIST"
 ENV_READ_ONLY = "IMESSAGE_MCP_READ_ONLY"
 ENV_LOG = "IMESSAGE_MCP_LOG"
+ENV_LIVE_SEND = "IMESSAGE_MCP_LIVE_SEND"
 
 # (name, description) in the order they appear in --help and the README.
 ENV_HELP: tuple[tuple[str, str], ...] = (
@@ -27,6 +28,7 @@ ENV_HELP: tuple[tuple[str, str], ...] = (
         "comma-separated handles that send_message may target; empty disables sending",
     ),
     (ENV_READ_ONLY, "set to 1 to drop the send tool entirely"),
+    (ENV_LIVE_SEND, "set to 1 to let send_message really send; unset (the default) is a dry run that checks and logs but sends nothing"),
     (ENV_LOG, "file to append one JSON line per send attempt to (handle, length, outcome; never the text)"),
 )
 
@@ -44,6 +46,7 @@ class Settings:
     allowlist: tuple[str, ...] = ()
     read_only: bool = False
     log_path: str = ""
+    live_send: bool = False
 
     @property
     def sending_enabled(self) -> bool:
@@ -93,4 +96,5 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         allowlist=parse_allowlist(env.get(ENV_ALLOWLIST)),
         read_only=parse_bool(env.get(ENV_READ_ONLY)),
         log_path=env.get(ENV_LOG, "").strip(),
+        live_send=parse_bool(env.get(ENV_LIVE_SEND)),
     )

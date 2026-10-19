@@ -36,6 +36,7 @@ Everything is configured through environment variables. There is no config file.
 | `BLUEBUBBLES_URL` | no | `http://localhost:1234` | Base URL of the BlueBubbles server. |
 | `BLUEBUBBLES_PASSWORD` | yes | | The BlueBubbles server password. Missing means the server exits with status 2 and a one-line message. |
 | `IMESSAGE_MCP_ALLOWLIST` | no | empty | Comma-separated handles (phone numbers or email addresses) that `send_message` may target. Empty means every send is refused. See [Safety](#safety) for how handles are matched. |
+| `IMESSAGE_MCP_LIVE_SEND` | no | unset | Dry run by default. Unless this is `1`, `send_message` runs every check, logs the attempt as `dry_run` and sends nothing; it returns `sent: false, dry_run: true`. Set to `1` only when you want messages to really go out. |
 | `IMESSAGE_MCP_READ_ONLY` | no | unset | Set to `1` to drop the send tool entirely, regardless of the allowlist: `tools/list` does not include `send_message`. |
 | `IMESSAGE_MCP_LOG` | no | unset | Path of a file to append one JSON line per send attempt to, allowed or refused. If the file cannot be opened for append, sends are refused. |
 
@@ -165,7 +166,9 @@ Sends `text` to the one-to-one chat with `handle` through BlueBubbles' AppleScri
 
 ## Safety
 
-The allowlist is the only gate. `send_message` sends to a handle if and only if that handle is on `IMESSAGE_MCP_ALLOWLIST` in the server's environment. There is no confirmation step, no rate limit and no content filter beyond the length and `MEDIA:` checks above. The server never reads the allowlist from the model: it is not a tool argument, it cannot be changed over MCP, and the model sees it only as a refusal message naming the handle it tried. Treat an entry on the allowlist as "the model may message this person at any time while the server runs".
+**Nothing is sent by default.** `send_message` is a dry run until `IMESSAGE_MCP_LIVE_SEND=1` is set in the server's environment, so a fresh install cannot text anyone. With the flag set, the rule below applies.
+
+The allowlist is the only gate when live sending is on. `send_message` sends to a handle if and only if that handle is on `IMESSAGE_MCP_ALLOWLIST` in the server's environment. There is no confirmation step, no rate limit and no content filter beyond the length and `MEDIA:` checks above. The server never reads the allowlist from the model: it is not a tool argument, it cannot be changed over MCP, and the model sees it only as a refusal message naming the handle it tried. Treat an entry on the allowlist as "the model may message this person at any time while the server runs".
 
 How a handle is matched: both the `handle` argument and every allowlist entry are normalised the same way, then compared for equality. Phone numbers lose spaces, dashes and parentheses and keep a leading `+`; email addresses are lower-cased. No country code is ever inferred, so `(608) 555-0100` matches an allowlist entry written as `608-555-0100` or `6085550100` but **not** one written as `+16085550100`. Write allowlist entries exactly as `list_chats` reports the handle, which for phone numbers is E.164 with the leading `+`.
 

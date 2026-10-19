@@ -53,13 +53,14 @@ def log_file(tmp_path):
     return tmp_path / "send.log"
 
 
-def settings(*allowlist: str, log: Path | None = None, read_only: bool = False) -> Settings:
+def settings(*allowlist: str, log: Path | None = None, read_only: bool = False, live: bool = True) -> Settings:
     return Settings(
         url=FakeBlueBubbles().url,
         password=PASSWORD,
         allowlist=tuple(allowlist),
         read_only=read_only,
         log_path=str(log) if log else "",
+        live_send=live,
     )
 
 
@@ -404,3 +405,37 @@ def test_stdio_tools_list_omits_send_message_in_read_only_mode():
     names = [t["name"] for t in responses[2]["result"]["tools"]]
     assert names == ["server_health", "list_chats", "read_thread", "search_messages"]
     assert "send_message" not in names
+
+
+# ---- dry run is the default -------------------------------------------------
+
+
+def test_default_settings_do_not_send():
+    assert Settings().live_send is False
+    assert config.load_settings({config.ENV_PASSWORD: "x"}).live_send is False
+    assert config.load_settings({config.ENV_PASSWORD: "x", config.ENV_LIVE_SEND: "1"}).live_send is True
+
+
+def test_dry_run_checks_and_logs_but_never_posts(client, fake, log_file):
+    result = send_message(client, settings(ALLOWED, log=log_file, live=False), ALLOWED, TEXT)
+    assert result["sent"] is False and result["dry_run"] is True
+    assert fake.records == []
+    assert [l["outcome"] for l in log_lines(log_file)] == ["dry_run"]
+    assert TEXT not in log_file.read_text(encoding="utf-8")
+
+
+def test_dry_run_still_refuses_bad_sends(client, fake, log_file):
+    s = settings(ALLOWED, log=log_file, live=False)
+    for handle, text in (("+160****0199", TEXT), (ALLOWED, ""), (ALLOWED, "MEDIA:/x")):
+        with pytest.raises(SendError):
+            send_message(client, s, handle, text)
+    assert fake.records == []
+    assert [l["outcome"] for l in log_lines(log_file)] == ["refused", "refused", "refused"]
+
+
+def test_mcp_default_server_is_dry_run(fake, log_file):
+    server = build_server(settings(ALLOWED, log=log_file, live=False), client=fake.client())
+    result = _call(server, "send_message", {"handle": ALLOWED, "text": TEXT})
+    assert result.structured_content["sent"] is False
+    assert result.structured_content["dry_run"] is True
+    assert fake.records == []
