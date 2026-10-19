@@ -6,11 +6,11 @@ network or binds a port, so it runs anywhere pytest does. It serves canned JSON 
 ``tests/fixtures``, applies the chat and message query parameters the real
 server honours (chat guid, before/after, sort, offset, limit, ``with``, and
 a ``where`` item of the one statement the search tool sends, evaluated with
-real LIKE semantics including ``ESCAPE``), checks the ``password`` query
-parameter, and records every request so tests can assert on paths and
-bodies. A ``where`` statement it does not know is a 400, so a test cannot
-pass with a query the real server was never shown to accept. All data is
-invented.
+real LIKE semantics including ``ESCAPE``), validates a send body before
+answering it, checks the ``password`` query parameter, and records every
+request so tests can assert on paths and bodies. A ``where`` statement it
+does not know is a 400, so a test cannot pass with a query the real server
+was never shown to accept. All data is invented.
 
 Usage::
 
@@ -148,7 +148,7 @@ class FakeBlueBubbles:
             except BadWhere as err:
                 return _json(400, _envelope(400, f"Bad where clause: {err}"))
         if method == "POST" and path == PATH_MESSAGE_TEXT:
-            return _json(200, load_fixture("message_text.json"))
+            return self._message_text(body)
         payload = _envelope(404, "Not Found")
         payload["error"]["message"] = f"no route for {method} {path}"
         return _json(404, payload)
@@ -210,6 +210,33 @@ class FakeBlueBubbles:
             drop.add("chats")
         fixture["data"] = [{k: v for k, v in m.items() if k not in drop} for m in messages]
         return fixture
+
+    def _message_text(self, body: Any) -> tuple[int, bytes]:
+        """Validate a send the way the real endpoint does, then echo it back.
+
+        A missing or empty ``chatGuid`` or ``message`` is a 400, as is an
+        unknown ``method``. (``tempGuid`` is not required here only because an
+        older client test posts without one.) The reply is the fixture message
+        carrying the text that was sent and the chat the guid resolves to: an
+        ``any;-;<handle>`` guid becomes ``iMessage;-;<handle>``.
+        """
+        if not isinstance(body, dict):
+            return _json(400, _envelope(400, "Body must be a JSON object"))
+        chat_guid = body.get("chatGuid")
+        if not isinstance(chat_guid, str) or not chat_guid:
+            return _json(400, _envelope(400, "chatGuid is required"))
+        message = body.get("message")
+        if not isinstance(message, str) or not message:
+            return _json(400, _envelope(400, "message is required"))
+        method = body.get("method", "apple-script")
+        if method not in ("apple-script", "private-api"):
+            return _json(400, _envelope(400, f"unknown send method {method!r}"))
+        if chat_guid.startswith("any;-;"):
+            chat_guid = "iMessage;-;" + chat_guid[len("any;-;"):]
+        fixture = load_fixture("message_text.json")
+        fixture["data"]["text"] = message
+        fixture["data"]["chats"] = [{"guid": chat_guid}]
+        return _json(200, fixture)
 
 
 # ---- helpers ---------------------------------------------------------------

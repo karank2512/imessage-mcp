@@ -279,11 +279,11 @@ def _tool_error_class():
     return ToolError
 
 
-def test_mcp_lists_four_tools(fake):
+def test_mcp_lists_five_tools(fake):
     server = build_server(Settings(url=fake.url, password=PASSWORD), client=fake.client())
     # The wire shape (camelCase), as tools/list would send it.
     tools = {t["name"]: t for t in (t.model_dump(by_alias=True) for t in asyncio.run(server.list_tools()))}
-    assert list(tools) == ["server_health", "list_chats", "read_thread", "search_messages"]
+    assert list(tools) == ["server_health", "list_chats", "read_thread", "search_messages", "send_message"]
 
     schema = tools["search_messages"]["inputSchema"]
     assert set(schema["properties"]) == {"query", "chat_guid", "since", "limit"}
